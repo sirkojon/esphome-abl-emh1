@@ -16,13 +16,13 @@ ICON_SERIAL_NUMBER = "mdi:information"
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_ABL_EMH1_ID): cv.use_id(ABLeMH1),
-        cv.Optional(CONF_MODE): text_sensor.TEXT_SENSOR_SCHEMA.extend(
+        cv.Optional(CONF_MODE): text_sensor.text_sensor_schema.extend(
             {
                 cv.GenerateID(): cv.declare_id(text_sensor.TextSensor),
                 cv.Optional(CONF_ICON, default=ICON_MODE): cv.icon,
             }
         ),
-        cv.Optional(CONF_SERIAL_NUMBER): text_sensor.TEXT_SENSOR_SCHEMA.extend(
+        cv.Optional(CONF_SERIAL_NUMBER): text_sensor.text_sensor_schema.extend(
             {
                 cv.GenerateID(): cv.declare_id(text_sensor.TextSensor),
                 cv.Optional(CONF_ICON, default=ICON_SERIAL_NUMBER): cv.icon,
