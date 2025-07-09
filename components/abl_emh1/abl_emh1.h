@@ -14,7 +14,7 @@ static const uint16_t CONFIG_AGE_THRESHOLD = 10;
 // class ABLeMH1;
 // ABLeMH1 *my_abl_emh1;
 
-class ABLeMH1: public PollingComponent, public emh1_modbus::eMH1ModbusDevice {
+class ABLeMH1 : public Component, public emh1_modbus::eMH1ModbusDevice {
  public:
   void set_mode_sensor(sensor::Sensor *mode_sensor) { mode_sensor_ = mode_sensor; }
   void set_l1_current_sensor(sensor::Sensor *l1_current_sensor) { l1_current_sensor_ = l1_current_sensor; }
@@ -29,9 +29,13 @@ class ABLeMH1: public PollingComponent, public emh1_modbus::eMH1ModbusDevice {
 	void set_mode_text_sensor(text_sensor::TextSensor *mode_text_sensor) { mode_text_sensor_ = mode_text_sensor; }
   void set_serial_number_text_sensor(text_sensor::TextSensor *serial_number_text_sensor) { serial_number_text_sensor_ = serial_number_text_sensor; }
 
-  void update() override;
   void on_emh1_modbus_data(uint16_t function, uint16_t datalength, const uint8_t* data) override;
+  void do_update() override;
+  void on_timeout() override;
   void dump_config() override;
+
+  void send_current(uint8_t x);
+  void send_enable(uint8_t x);
 
  protected:
   sensor::Sensor *mode_sensor_;

@@ -7,24 +7,27 @@ namespace esphome {
 namespace emh1_modbus {
 
 static const char *const TAG = "emh1_modbus";
-uint8_t DEFAULT_DEVICE_ID = 0x02; // Default value for uint8_t
+static const uint32_t RESPONSE_TIMEOUT_MS = 2000;
 
 void eMH1Modbus::setup() {
   if (this->flow_control_pin_ != nullptr) {
      this->flow_control_pin_->setup();
   }
-	eMH1MessageT *tx_message = &this->emh1_tx_message;
-	tx_message->DeviceId = DEFAULT_DEVICE_ID;
-	tx_message->FunctionCode = 0x03;
-	tx_message->Destination = 0x002E;
-	tx_message->DataLength = 0x0005;
-	tx_message->LRC = 0x00;
-	tx_message->WriteBytes = 0x00;
 }
 
 // loop() receives incoming replies from ABL
 void eMH1Modbus::loop() {
   const uint32_t now = millis();
+  if (this->bus_is_busy_ && (now - this->last_request_time_ > RESPONSE_TIMEOUT_MS)) {
+    if (this->last_device_polled_ != nullptr) {
+      ESP_LOGW(TAG, "Timeout waiting for response from address 0x%02X", this->last_device_polled_->get_address());
+      this->last_device_polled_->on_timeout();
+    } else {
+      ESP_LOGW(TAG, "Timeout waiting for response from unknown device");
+    }
+    this->bus_is_busy_ = false;
+  }
+
   if (now - this->last_emh1_modbus_byte_ > 50) {
     this->rx_buffer_.clear();
     this->last_emh1_modbus_byte_ = now;
@@ -84,11 +87,11 @@ bool eMH1Modbus::parse_emh1_modbus_byte_(uint8_t byte) {
 	  return true;
 	this->rx_buffer_.push_back('\0');
   char *frame = &this->rx_buffer_[0];
-	eMH1MessageT *tx_message = &this->emh1_tx_message;
 
 	// check LRC
 	uint8_t lrc1 = ascii2uint8(&frame[at-3]);
-  uint8_t lrc2 = lrc(&frame[1], at-3);
+  uint8_t lrc2 = lrc(&frame[1], at-4);
+  this->bus_is_busy_ = false;
 	if (lrc1 != lrc2) {
 		ESP_LOGW(TAG, "LRC check failed, discarding transmission");
 		return false;
@@ -108,37 +111,35 @@ bool eMH1Modbus::parse_emh1_modbus_byte_(uint8_t byte) {
 	}
 
   // Check Device ID
-	uint8_t r = ascii2uint8(&frame[1]);
-	if (r != DEFAULT_DEVICE_ID) {
-	  ESP_LOGW(TAG, "ERROR: Received from device ID: 0x%02X", r);
-		return false;
-  }
+	uint8_t device_id = ascii2uint8(&frame[1]);
 
 	// Check Function Code
-  r = ascii2uint8(&frame[3]);
+  uint8_t r = ascii2uint8(&frame[3]);
 	uint16_t v;
 	switch(r) {
 	  case 0x03:
       // ESP_LOGD(TAG, "Response to read operation");
 			r = ascii2uint8(&frame[5]);
 	    ESP_LOGD(TAG, "Receiving %u bytes", r);
-			if (r == tx_message->DataLength * 2) {
+			if (r == this->last_sent_data_length_ * 2) {
 				// ESP_LOGD(TAG, "Send data upwards");
+        uint8_t data[100];
 				for (uint8_t x = 0; x<r; x++) {
-				  tx_message->Data[x] = ascii2uint8(&frame[7+x*2]);
+				  data[x] = ascii2uint8(&frame[7+x*2]);
 				}
   			bool found = false;
   			for (auto *device : this->devices_) {
-    		  if (device->address_ == tx_message->DeviceId) {
-            device->on_emh1_modbus_data(tx_message->Destination, tx_message->DataLength, tx_message->Data);
+    		  if (device->address_ == device_id) {
+            device->on_emh1_modbus_data(this->last_sent_destination_, this->last_sent_data_length_, data);
 						found = true;
+            break;
       		}
     		}
   			if (!found) {
-    		  ESP_LOGW(TAG, "Got eMH1 frame from unknown device address");
+    		  ESP_LOGW(TAG, "Got eMH1 frame from unknown device address 0x%02X", device_id);
   			}
 			} else {
-				ESP_LOGW(TAG, "Response data size mismatch, expected %u got %u bytes", this->emh1_tx_message.DataLength * 2, r);
+				ESP_LOGW(TAG, "Response data size mismatch, expected %u got %u bytes", this->last_sent_data_length_ * 2, r);
 			}
 			break;
 		case 0x10:
@@ -170,61 +171,77 @@ float eMH1Modbus::get_setup_priority() const {
   return setup_priority::BUS - 1.0f;
 }
 
-void eMH1Modbus::query_status_report() {
-  ESP_LOGW(TAG, "Query Status Report");
+void eMH1Modbus::update() {
+  if (this->bus_is_busy_) {
+    return;  // Wait for the current transaction to finish
+  }
+  if (this->devices_.empty()) {
+    return;
+  }
+
+  // Poll the next device in the list
+  this->last_device_polled_ = this->devices_[this->next_device_index_];
+  this->last_device_polled_->do_update();
+
+  // Move to the next device for the next poll cycle
+  this->next_device_index_ = (this->next_device_index_ + 1) % this->devices_.size();
+}
+
+void eMH1Modbus::query_status_report(uint8_t address) {
+  ESP_LOGD(TAG, "Query Status Report for 0x%02X", address);
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address
+  tx_message->DeviceId = address;
 	tx_message->FunctionCode = 0x03;
 	tx_message->Destination = 0x002E;
 	tx_message->DataLength = 0x0005;
-  this->send();
+  this->send_message();
 }
 
-void eMH1Modbus::get_serial() {
-  ESP_LOGW(TAG, "Query Serial Number");
+void eMH1Modbus::get_serial(uint8_t address) {
+  ESP_LOGD(TAG, "Query Serial Number for 0x%02X", address);
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address
+  tx_message->DeviceId = address;
 	tx_message->FunctionCode = 0x03;
 	tx_message->Destination = 0x0050;
 	tx_message->DataLength = 0x0008;
-  this->send();
+  this->send_message();
 }
 
 // set Max current
-void eMH1Modbus::send_current(uint8_t x) {
+void eMH1Modbus::send_current(uint8_t address, uint8_t x) {
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address				// default address
+  tx_message->DeviceId = address;
 	tx_message->FunctionCode = 0x10;		// write operation
 	tx_message->Destination = 0x0014;		// Set Ic Max
 	tx_message->DataLength = 0x0001;		// 1 16-bit register
 	tx_message->WriteBytes = 0x02;			// quantity of value bytes
 	uint16_t v = std::floor(16.67*x);
-  ESP_LOGD(TAG, "Set Max Current to %d Amps (0x%04X)", x, v);
+  ESP_LOGD(TAG, "Set Max Current for 0x%02X to %d Amps (0x%04X)", address, x, v);
 	uint8_t v1 = 0 + (v >> 8);
 	uint8_t v2 = 0 + (v & 0x00FF);
 	tx_message->Data[0] = v1;
 	tx_message->Data[1] = v2;
-	this->send();
+	this->send_message();
 }
 
 // send enable/disable
-void eMH1Modbus::send_enable(uint8_t x) {
+void eMH1Modbus::send_enable(uint8_t address, uint8_t x) {
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address				// default address
+  tx_message->DeviceId = address;
 	tx_message->FunctionCode = 0x10;		// write operation
-	tx_message->Destination = 0x0005;		// Set Ic Max
+	tx_message->Destination = 0x0005;		// EV-Status
 	tx_message->DataLength = 0x0001;		// 1 16-bit register
 	tx_message->WriteBytes = 0x02;			// quantity of value bytes
 	if (x == 1) {
 		tx_message->Data[0] = 0xA1;
 		tx_message->Data[1] = 0xA1;
-    ESP_LOGD(TAG, "Enable charger");
+    ESP_LOGD(TAG, "Enable charger 0x%02X", address);
 	} else {
 		tx_message->Data[0] = 0xE0;
 		tx_message->Data[1] = 0xE0;
-    ESP_LOGD(TAG, "Disable charger");
+    ESP_LOGD(TAG, "Disable charger 0x%02X", address);
   }
-	this->send();
+	this->send_message();
 }
 
 // convert single uint8_t value to hex-encoded ascii, append to outStr
@@ -261,9 +278,15 @@ uint8_t eMH1Modbus::hexencode_ascii(uint8_t* val, char* outStr, uint8_t offset, 
 }
 
 // Send a query or command to ABL eMH1 via RS485
-void eMH1Modbus::send() {
+void eMH1Modbus::send_message() {
   // Send Modbus query as ASCII text (modbus-ascii !)
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
+
+  this->last_sent_destination_ = tx_message->Destination;
+  this->last_sent_data_length_ = tx_message->DataLength;
+  this->bus_is_busy_ = true;
+  this->last_request_time_ = millis();
+
 	char buffer[200];
 	uint8_t size = 0;
 	size = hexencode_ascii(tx_message->DeviceId, buffer, size);

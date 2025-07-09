@@ -11,15 +11,13 @@ CONF_ABL_EMH1_ID = "abl_emh1_id"
 
 abl_emh1_ns = cg.esphome_ns.namespace("abl_emh1")
 ABLeMH1 = abl_emh1_ns.class_(
-    "ABLeMH1", cg.PollingComponent, emh1_modbus.eMH1ModbusDevice
+    "ABLeMH1", cg.Component, emh1_modbus.eMH1ModbusDevice
 )
 
 CONFIG_SCHEMA = (
-    cv.Schema({cv.GenerateID(): cv.declare_id(ABLeMH1)})
-    .extend(cv.polling_component_schema("30s"))
-    .extend(
-        emh1_modbus.emh1_modbus_device_schema(0x02)
-    )
+    cv.Schema({cv.Required(CONF_ID): cv.declare_id(ABLeMH1)})
+    .extend(emh1_modbus.emh1_modbus_device_schema(None))
+    .extend(cv.COMPONENT_SCHEMA)
 )
 
 

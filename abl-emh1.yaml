@@ -8,6 +8,7 @@ substitutions:
 
 esphome:
   name: ${name}
+  # id: ${name} # You can use this if you only have one charger
   comment: ${device_description}
   friendly_name: ABL eMH1
   project:
@@ -50,10 +51,12 @@ emh1_modbus:
     uart_id: uart_2
     flow_control_pin: ${flow_control_pin}
     id: modbus0
+    update_interval: 2s # Polls the next charger every 2 seconds.
 
 abl_emh1:
+  id: my_charger_1
   emh1_modbus_id: modbus0
-  update_interval: 5s
+  address: 0x01
 
 preferences:
   flash_write_interval: 5min
@@ -152,22 +155,22 @@ number:
     set_action:
       lambda: |-
         ESP_LOGD("main", "Sending modbus value = %d", std::lround(x));
-        id(modbus0)->send_current(std::lround(x));
+        id(my_charger_1)->send_current(std::lround(x));
 
 switch:
   - platform: template
     name: "Enable"
-    id: enable_switch
+    id: enable_switch_1
     icon: "mdi:power"
     lambda: 'return (id(outlet_state).state != 0xE0);'
     turn_off_action: 
       - lambda: |-
           if ((id(abl_uptime).state > 10.0) && (id(outlet_state).state != NAN)) 
-            id(modbus0)->send_enable(0);
+            id(my_charger_1)->send_enable(0);
     turn_on_action: 
       - lambda: |-
           if ((id(abl_uptime).state > 10.0) && (id(outlet_state).state != NAN))
-            id(modbus0)->send_enable(1);
+            id(my_charger_1)->send_enable(1);
 
  
 

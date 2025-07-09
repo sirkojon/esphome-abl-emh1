@@ -13,7 +13,7 @@ MULTI_CONF = False
 CONF_EMH1_MODBUS_ID = "emh1_modbus_id"
 
 emh1_modbus_ns = cg.esphome_ns.namespace("emh1_modbus")
-eMH1Modbus = emh1_modbus_ns.class_("eMH1Modbus", cg.Component, uart.UARTDevice)
+eMH1Modbus = emh1_modbus_ns.class_("eMH1Modbus", cg.PollingComponent, uart.UARTDevice)
 eMH1ModbusDevice = emh1_modbus_ns.class_("eMH1ModbusDevice")
 
 CONFIG_SCHEMA = (
@@ -23,7 +23,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
         }
     )
-    .extend(cv.COMPONENT_SCHEMA)
+    .extend(cv.polling_component_schema("2s"))
     .extend(uart.UART_DEVICE_SCHEMA)
 )
 

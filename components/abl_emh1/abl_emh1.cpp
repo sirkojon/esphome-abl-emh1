@@ -42,6 +42,7 @@ static const char STATECODE[STATE_SIZE] = {
 };
 
 void ABLeMH1::on_emh1_modbus_data(uint16_t function, uint16_t datalength, const uint8_t* data) {
+  this->no_response_count_ = 0;
   switch (function) {
     case FUNCTION_STATUS_REPORT:
       this->decode_status_report_(data, datalength);
@@ -68,7 +69,6 @@ void ABLeMH1::decode_serial_number_(const uint8_t* data, uint16_t datalength) {
 	buffer[x] = '\0';
 	ESP_LOGD(TAG, "Serial number: %s", buffer);
   this->publish_state_(this->serial_number_text_sensor_, buffer);
-  this->no_response_count_ = 0;
 }
 
 void ABLeMH1::decode_status_report_(const uint8_t* data, uint16_t datalength) {
@@ -105,7 +105,6 @@ void ABLeMH1::decode_status_report_(const uint8_t* data, uint16_t datalength) {
 	float v = (v1 * 256 + v2) * 1000.0 / 16625.0;
 	ESP_LOGD(TAG, "Read max current value 0x%02X 0x%02X", v1, v2);
   this->publish_state_(this->max_current_sensor_, v);
-  this->no_response_count_ = 0;
 }
 
 void ABLeMH1::publish_device_offline_() {
@@ -123,24 +122,28 @@ void ABLeMH1::publish_device_offline_() {
   this->publish_state_(this->serial_number_text_sensor_, "");
 }
 
-void ABLeMH1::update() {
+void ABLeMH1::on_timeout() {
+  this->no_response_count_++;
+  ESP_LOGW(TAG, "No response from charger address 0x%02X (no_response_count=%d)", this->address_, this->no_response_count_);
+}
+
+void ABLeMH1::do_update() {
   if (this->config_age_ >= CONFIG_AGE_THRESHOLD) {
-    ESP_LOGD(TAG, "Get device serial numer");
-	  this->get_serial();
-		this->config_age_ = 0;
-	  return;
-	}
-	if (this->no_response_count_ >= REDISCOVERY_THRESHOLD) {
-    this->publish_device_offline_();
-    ESP_LOGD(TAG, "The device is or was offline. Broadcasting discovery for address configuration...");
+    ESP_LOGD(TAG, "Requesting serial number from 0x%02X", this->address_);
     this->get_serial();
-    // this->query_device_info(this->address_);
-    // Try to query live data on next update again. The device doesn't
-    // respond to the discovery broadcast if it's already configured.
-    this->no_response_count_ = 0;
+    this->config_age_ = 0;
+    return;
+  }
+
+  this->config_age_++;
+
+  if (this->no_response_count_ >= REDISCOVERY_THRESHOLD) {
+    this->publish_device_offline_();
+    ESP_LOGW(TAG, "Device 0x%02X is offline. Trying to rediscover.", this->address_);
+    this->get_serial();
+    this->no_response_count_ = 0;  // Give it a few tries before marking as offline again
   } else {
-		this->query_status_report();
-    this->no_response_count_++;
+    this->query_status_report();
   }
 }
 
@@ -172,6 +175,14 @@ void ABLeMH1::dump_config() {
   LOG_SENSOR("", "L3 Current", this->l3_current_sensor_);
   LOG_SENSOR("", "Max current", this->max_current_sensor_);
   LOG_TEXT_SENSOR("  ", "Mode name", this->mode_text_sensor_);
+}
+
+void ABLeMH1::send_current(uint8_t x) {
+  this->parent_->send_current(this->address_, x);
+}
+
+void ABLeMH1::send_enable(uint8_t x) {
+  this->parent_->send_enable(this->address_, x);
 }
 
 }  // namespace abl_emh1
