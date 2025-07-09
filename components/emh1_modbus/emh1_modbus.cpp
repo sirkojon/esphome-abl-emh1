@@ -7,13 +7,14 @@ namespace esphome {
 namespace emh1_modbus {
 
 static const char *const TAG = "emh1_modbus";
+uint8_t DEFAULT_DEVICE_ID = 0x02; // Default value for uint8_t
 
 void eMH1Modbus::setup() {
   if (this->flow_control_pin_ != nullptr) {
      this->flow_control_pin_->setup();
   }
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-	tx_message->DeviceId = 0x01;
+	tx_message->DeviceId = DEFAULT_DEVICE_ID;
 	tx_message->FunctionCode = 0x03;
 	tx_message->Destination = 0x002E;
 	tx_message->DataLength = 0x0005;
@@ -108,7 +109,7 @@ bool eMH1Modbus::parse_emh1_modbus_byte_(uint8_t byte) {
 
   // Check Device ID
 	uint8_t r = ascii2uint8(&frame[1]);
-	if (r != 0x01) {
+	if (r != DEFAULT_DEVICE_ID) {
 	  ESP_LOGW(TAG, "ERROR: Received from device ID: 0x%02X", r);
 		return false;
   }
@@ -172,7 +173,7 @@ float eMH1Modbus::get_setup_priority() const {
 void eMH1Modbus::query_status_report() {
   ESP_LOGW(TAG, "Query Status Report");
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = 0x01;
+  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address
 	tx_message->FunctionCode = 0x03;
 	tx_message->Destination = 0x002E;
 	tx_message->DataLength = 0x0005;
@@ -182,7 +183,7 @@ void eMH1Modbus::query_status_report() {
 void eMH1Modbus::get_serial() {
   ESP_LOGW(TAG, "Query Serial Number");
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = 0x01;
+  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address
 	tx_message->FunctionCode = 0x03;
 	tx_message->Destination = 0x0050;
 	tx_message->DataLength = 0x0008;
@@ -192,7 +193,7 @@ void eMH1Modbus::get_serial() {
 // set Max current
 void eMH1Modbus::send_current(uint8_t x) {
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = 0x01;				// default address
+  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address				// default address
 	tx_message->FunctionCode = 0x10;		// write operation
 	tx_message->Destination = 0x0014;		// Set Ic Max
 	tx_message->DataLength = 0x0001;		// 1 16-bit register
@@ -209,7 +210,7 @@ void eMH1Modbus::send_current(uint8_t x) {
 // send enable/disable
 void eMH1Modbus::send_enable(uint8_t x) {
 	eMH1MessageT *tx_message = &this->emh1_tx_message;
-  tx_message->DeviceId = 0x01;				// default address
+  tx_message->DeviceId = DEFAULT_DEVICE_ID;	// default address				// default address
 	tx_message->FunctionCode = 0x10;		// write operation
 	tx_message->Destination = 0x0005;		// Set Ic Max
 	tx_message->DataLength = 0x0001;		// 1 16-bit register
